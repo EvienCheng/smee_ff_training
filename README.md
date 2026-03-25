@@ -1,6 +1,6 @@
 # smee_ff_training
 
-Training notebooks for fitting custom force field functional forms using **SMEE** and **Descent** with a custom SMIRNOFF plugin.
+This repository contains training notebooks for fitting custom force field functional forms using **SMEE** and **Descent** with a custom SMIRNOFF plugin.
 
 This repository contains training workflows for four custom valence functional forms:
 
@@ -10,6 +10,8 @@ This repository contains training workflows for four custom valence functional f
 - Two-minima improper potential  
 
 These functional forms are implemented through a custom **SMIRNOFF plugin** and trained using **SMEE** force field optimization tools.
+
+Example untrained and trained custom force fields are included in this repository. 
 
 ---
 
@@ -29,6 +31,7 @@ The goal is to evaluate alternative functional forms for valence terms and compa
 
 ## Installation
 
+Ensure that the custom SMIRNOFF plugin version in installed at https://github.com/EvienCheng/smirnoff-plugins
 Create the conda environment using the provided YAML file:
 
 ```bash
