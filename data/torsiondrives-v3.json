@@ -1,0 +1,26 @@
+{
+    "entries": {
+        "https://api.qcarchive.molssi.org:443/": [
+            {
+                "type": "torsion",
+                "record_id": 145953924,
+                "cmiles": "[C:2]([C:5]([F:6])([Cl:7])[Cl:8])([F:1])([F:3])[Cl:4]",
+                "inchi_key": "AJDIZQLSFPQPEY-UHFFFAOYNA-N"
+            },
+            {
+                "type": "torsion",
+                "record_id": 145953986,
+                "cmiles": "[C:2](=[O:1])([C:4]1([C:6]([C:9]1([F:10])[Cl:11])([F:7])[F:8])[F:5])[O-:3]",
+                "inchi_key": "FLRUVGHWNHEMRG-SVOCBTNGNA-M"
+            },
+            {
+                "type": "torsion",
+                "record_id": 145954055,
+                "cmiles": "[C:2](=[O:1])(/[N+:4](=[N:6]/[O-:7])/[O-:5])[F:3]",
+                "inchi_key": "DWGFIYANINLKPG-DXMUHJMDNA-M"
+            }
+        ]
+    },
+    "provenance": {},
+    "type": "TorsionDriveResultCollection"
+}

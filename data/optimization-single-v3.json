@@ -1,0 +1,26 @@
+{
+    "entries": {
+        "https://api.qcarchive.molssi.org:443/": [
+            {
+                "type": "optimization",
+                "record_id": 120114168,
+                "cmiles": "[c:1]1([H:11])[c:2]([H:12])[c:4]([H:14])[c:7]([C:8]2=[N:10][N:9]([H:18])[C:6]2([H:16])[H:17])[c:5]([H:15])[c:3]1[H:13]",
+                "inchi_key": "GDJXRELXKSKCGT-UHFFFAOYNA-N"
+            },
+            {
+                "type": "optimization",
+                "record_id": 20904952,
+                "cmiles": "[H:19][c:1]1[c:3]([c:4]([c:2]([c:6]([c:5]1[Cl:17])[Cl:18])[H:20])[S:16](=[O:14])(=[O:15])[N:13]2[C:8](=[C:7]([C:9](=[N:12]2)[C:11]([H:26])([H:27])[H:28])[H:21])[H:22])[C:10]([H:23])([H:24])[H:25]",
+                "inchi_key": "PSBWZSXTXKPRMG-UHFFFAOYNA-N"
+            },
+            {
+                "type": "optimization",
+                "record_id": 146497408,
+                "cmiles": "[H:9][C:3]1([C:2]([C:5]([N:4]1[H:11])([H:12])[H:13])([H:8])[P:1]([H:6])[H:7])[H:10]",
+                "inchi_key": "DXBGFPFJPXZORD-UHFFFAOYNA-N"
+            }
+	]
+	},
+"provenance": {},
+"type": "OptimizationResultCollection"
+}

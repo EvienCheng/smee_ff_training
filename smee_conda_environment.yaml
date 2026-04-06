@@ -1,0 +1,57 @@
+name: smee-descent-env
+channels:
+  - conda-forge
+  - openeye
+  - nodefaults
+
+dependencies:
+  # Python
+  - python=3.11
+
+  # Core scientific stack
+  - numpy
+  - scipy
+  - pandas
+
+  # OpenFF ecosystem
+  - openff-toolkit
+  - openff-forcefields
+  - openff-qcsubmit
+  - openff-interchange
+
+  # QCArchive / QCFractal
+  - qcportal
+  - qcfractal
+
+  # Chemistry toolkits
+  - rdkit
+  - openeye-toolkits
+  - cmiles
+
+  # Simulation
+  - openmm
+
+  # Machine learning
+  - pytorch
+
+  # Utilities
+  - tqdm
+  - more-itertools
+
+  # Visualization
+  - matplotlib
+
+  # Logging
+  - tensorboardx
+
+  # File/data handling
+  - pyarrow
+  - datasets
+
+  # Dev / misc
+  - pip
+
+  - pip:
+      # SMEE + Descent (not on conda)
+      - git+https://github.com/EvienCheng/smirnoff-plugins.git
+      - git+https://github.com/EvienCheng/smee.git
