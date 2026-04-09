@@ -132,7 +132,9 @@ def convert_to_descent(collection, config):
                 last_mol = last.molecule
 
                 mapped_smiles = last_mol.identifiers.canonical_isomeric_explicit_hydrogen_mapped_smiles
-
+                if mapped_smiles is None:
+                    continue
+                
                 coords = last_mol.geometry * bohr_to_angstrom
                 energy = last.properties["return_energy"] * hartree_to_kcal
 
@@ -168,13 +170,7 @@ def convert_to_descent(collection, config):
                 "coords": coords,
                 "energy": energy,
                 "forces": forces,
-            })
-
-        
-        count += 1
-        if count > 1:
-            break
-    # print(data_by_smiles)
+            })        
 
     for mapped_smiles, entries in data_by_smiles.items():
         entry = {
@@ -234,7 +230,7 @@ def build_smee_system(dataset, forcefield):
 
     smee_ff, smee_topologies = smee.converters.convert_interchange(interchanges)
     topologies = dict(zip(all_smiles, smee_topologies))
-
+    # print(smee_ff)
     return smee_ff, topologies
 
 
@@ -260,6 +256,9 @@ def create_trainable(smee_force_field, functional_form):
             scales={"k": 1.0},
         ),
     }
+
+    available = set(smee_force_field.potentials_by_type.keys())
+    print("Available SMEE potentials:", available)
 
     if functional_form == "LeeKrimm":
         parameters["LeeKrimm"] = descent.train.ParameterConfig(
