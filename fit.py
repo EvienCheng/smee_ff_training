@@ -46,9 +46,15 @@ def get_forcefield_type(ff):
         return "HarmonicHeight"
 
     elif "ImproperTorsions" in ff.registered_parameter_handlers:
-        return "TwoMinima"
+        handler = ff.get_parameter_handler("ImproperTorsions")
 
-    return "Unknown"
+        for param in handler.parameters:
+            if hasattr(param, "periodicity2"):
+                return "TwoMinima"
+            else:
+                return "Benchmark"
+            
+    return "Benchmark"
 
 # Dataset Loading
 import descent.targets.energy
@@ -104,90 +110,207 @@ def load_qcarchive_dataset(config):
 
     return collection
 
-def convert_to_descent(collection, config):
+
+def convert_to_descent(collection, config, output_dir):
     data_type = config["type"]
 
     bohr_to_angstrom = (1 * unit.bohr).m_as(unit.angstrom)
-    hartree_to_kcal = (1 * unit.hartree * unit.avogadro_constant).m_as(
-        unit.kilocalories_per_mole
+    hartree_to_kj = (1 * unit.hartree * unit.avogadro_constant).m_as(
+        unit.kilojoules_per_mole
     )
 
     records_and_molecules = list(collection.to_records())
 
     print(f"Total records: {len(records_and_molecules)}")
 
+    stats = {
+        "torsiondrive": {"total_records": 0, "saved_records": 0},
+        "optimization": {"total_records": 0, "saved_records": 0},
+    }
+    stats[data_type]["total_records"] = len(records_and_molecules)
+
     descent_entries = []
-    data_by_smiles = defaultdict(list)
+    
+    skipped_records = {
+    "torsiondrive": [],
+    "optimization": []
+    }
 
-    # print(records_and_molecules)
-
-    count = 0
     for record, molecule in tqdm.tqdm(records_and_molecules):
+        try:
+            record_saved = False
 
-        # TorsionDrive
-        if data_type == "torsiondrive":
+            coords_list = []
+            energy_list = []
+            forces_list = []
 
-            for opt in record.minimum_optimizations.values():
-                last = opt.trajectory[-1]
+            if data_type == "torsiondrive":
+                td_saved_any = False
+                td_has_any_opt = False
+
+                for opt in record.minimum_optimizations.values():
+                    td_has_any_opt = True
+
+                    if len(opt.trajectory) == 0:
+                        skipped_records["torsiondrive"].append({
+                            "record_id": record.id,
+                            "opt_id": getattr(opt, "id", None),
+                            "reason": "empty_trajectory"
+                        })
+                        continue
+
+                    last = opt.trajectory[-1]
+                    last_mol = last.molecule
+
+                    mapped_smiles = last_mol.identifiers.canonical_isomeric_explicit_hydrogen_mapped_smiles
+                    if mapped_smiles is None:
+                        skipped_records["torsiondrive"].append({
+                            "record_id": record.id,
+                            "opt_id": getattr(opt, "id", None),
+                            "reason": "missing_smiles"
+                        })
+                        continue
+
+                    coords = last_mol.geometry * bohr_to_angstrom
+                    energy = last.properties["return_energy"] * hartree_to_kj
+
+                    gradient = np.array(last.properties["scf total gradient"]).reshape((-1, 3))
+                    forces = (-gradient) * hartree_to_kj / bohr_to_angstrom
+
+                    MAX_FORCE = 100.0
+
+                    if not np.all(np.isfinite(forces)):
+                        skipped_records["torsiondrive"].append({
+                            "record_id": record.id,
+                            "opt_id": getattr(opt, "id", None),
+                            "reason": "non_finite_forces"
+                        })
+                        continue
+
+                    if np.abs(forces).max() > MAX_FORCE:
+                        skipped_records["torsiondrive"].append({
+                            "record_id": record.id,
+                            "opt_id": getattr(opt, "id", None),
+                            "reason": "force_too_large",
+                            "max_force": float(np.abs(forces).max())
+                        })
+                        continue
+
+                    coords_list.append(coords)
+                    energy_list.append(energy)
+                    forces_list.append(forces)
+
+                    td_saved_any = True
+
+                if not td_has_any_opt:
+                    skipped_records["torsiondrive"].append({
+                        "record_id": record.id,
+                        "reason": "no_minimum_optimizations"
+                    })
+
+            elif data_type == "optimization":
+                opt_saved = False
+
+                if len(record.trajectory) == 0:
+                    skipped_records["optimization"].append({
+                        "record_id": record.id,
+                        "reason": "empty_trajectory"
+                    })
+                    continue
+
+                last = record.trajectory[-1]
                 last_mol = last.molecule
 
                 mapped_smiles = last_mol.identifiers.canonical_isomeric_explicit_hydrogen_mapped_smiles
                 if mapped_smiles is None:
+                    skipped_records["optimization"].append({
+                        "record_id": record.id,
+                        "reason": "missing_smiles"
+                    })
                     continue
-                
+
                 coords = last_mol.geometry * bohr_to_angstrom
-                energy = last.properties["return_energy"] * hartree_to_kcal
+                energy = last.properties["return_energy"] * hartree_to_kj
 
-                gradient = np.array(
-                    last.properties["scf total gradient"]
-                ).reshape((-1, 3))
+                gradient = np.array(last.properties["scf total gradient"]).reshape((-1, 3))
+                forces = (-gradient) * hartree_to_kj / bohr_to_angstrom
 
-                forces = (-gradient) * hartree_to_kcal / bohr_to_angstrom
+                MAX_FORCE = 100.0
 
-                data_by_smiles[mapped_smiles].append({
-                    "coords": coords,
-                    "energy": energy,
-                    "forces": forces,
-                })
+                if not np.all(np.isfinite(forces)):
+                    skipped_records["torsiondrive"].append({
+                        "record_id": record.id,
+                        "opt_id": getattr(opt, "id", None),
+                        "reason": "non_finite_forces"
+                    })
+                    continue
 
-        # Optimization
-        elif data_type == "optimization":
-            last = record.trajectory[-1]
-            last_mol = last.molecule
-            mapped_smiles = last_mol.identifiers.canonical_isomeric_explicit_hydrogen_mapped_smiles
-            if mapped_smiles is None:
+                if np.abs(forces).max() > MAX_FORCE:
+                    skipped_records["torsiondrive"].append({
+                        "record_id": record.id,
+                        "opt_id": getattr(opt, "id", None),
+                        "reason": "force_too_large",
+                        "max_force": float(np.abs(forces).max())
+                    })
+                    continue
+
+                coords_list.append(coords)
+                energy_list.append(energy)
+                forces_list.append(forces)
+
+                opt_saved = True
+
+            if len(coords_list) == 0:
                 continue
-            coords = last_mol.geometry * bohr_to_angstrom
-            energy = last.properties["return_energy"] * hartree_to_kcal
+            
+            energy_array = np.array(energy_list)
+            energy_array -= energy_array.min()
+            energy_list = energy_array.tolist()
+                        
+            if data_type == "torsiondrive":
+                if td_saved_any:
+                    stats["torsiondrive"]["saved_records"] += 1
+            elif data_type == "optimization":
+                if opt_saved:
+                    stats["optimization"]["saved_records"] += 1            
 
-            gradient = np.array(
-                last.properties["scf total gradient"]
-            ).reshape((-1, 3))
+            descent_entries.append({
+                "smiles": mapped_smiles,
+                "record_id": int(record.id),
+                "max_force": float(np.abs(forces).max()),
+                "coords": torch.tensor(coords_list),
+                "energy": torch.tensor(energy_list),
+                "forces": torch.tensor(forces_list),
+            })
 
-            forces = (-gradient) * hartree_to_kcal / bohr_to_angstrom
+            print(f"{mapped_smiles} : {len(coords_list)} conformers")
 
-            data_by_smiles[mapped_smiles].append({
-                "coords": coords,
-                "energy": energy,
-                "forces": forces,
-            })        
+        except Exception as e:
+            skipped_records[data_type].append({
+                "record_id": getattr(record, "id", None),
+                "reason": "exception",
+                "error": str(e)
+            })
+            continue
 
-    for mapped_smiles, entries in data_by_smiles.items():
-        entry = {
-            "smiles": mapped_smiles,
-            "coords": torch.tensor([x["coords"] for x in entries]),
-            "energy": torch.tensor([x["energy"] for x in entries]),
-            "forces": torch.tensor([x["forces"] for x in entries]),
-        }
-        descent_entries.append(entry)
+    for e in descent_entries[:5]:
+        print(e["record_id"], e["smiles"])
 
     dataset = descent.targets.energy.create_dataset(entries=descent_entries)
-    dataset.set_format('torch', columns=['energy', 'coords','forces'], output_all_columns=True)    
-    dataset.save_to_disk("test-smee-data")
+    dataset = dataset.add_column("record_id", [e["record_id"] for e in descent_entries])
+    dataset.set_format(
+        'torch',
+        columns=['energy', 'coords', 'forces'],
+        output_all_columns=True
+    )
 
-    # print(dataset[0])
+    output_skips_path = output_dir / "skipped_records.json" 
+    with open(output_skips_path, "w") as f:
+        json.dump(skipped_records, f, indent=2)
 
-    return dataset
+    print(dataset.column_names)
+
+    return dataset, stats
 
 # Force Field Setup
 
@@ -210,6 +333,8 @@ def apply_functional_form(ff, form_name):
         ff.deregister_parameter_handler("ImproperTorsions")
     elif form_name == "TwoMinima":
         pass
+    elif form_name == "Benchmark":
+        pass
     else:
         raise ValueError(f"Unknown functional form {form_name}")
     return ff
@@ -218,21 +343,61 @@ def apply_functional_form(ff, form_name):
 # Interchange + SMEE Conversion
 
 def build_smee_system(dataset, forcefield):
-    all_smiles = []
+
+    topologies = {}
     interchanges = []
 
-    for entry in tqdm.tqdm(dataset):
-        mol = Molecule.from_mapped_smiles(entry["smiles"], allow_undefined_stereo=True)
-        interchange_obj = forcefield.create_interchange(mol.to_topology())
+    failed = []
 
-        all_smiles.append(entry["smiles"])
+    unique_smiles = []
+
+    for i, entry in enumerate(tqdm.tqdm(dataset)):
+
+        smiles = entry["smiles"]
+
+        if smiles in topologies:
+            continue
+
+        try:
+            mol = Molecule.from_mapped_smiles(
+                smiles,
+                allow_undefined_stereo=True
+            )
+
+            topology = mol.to_topology()
+            interchange_obj = forcefield.create_interchange(topology)
+
+        except Exception as e:
+
+            print("\n[FAILED MOLECULE]")
+            print(f"Index: {i}")
+            print(f"SMILES: {smiles}")
+            print(f"Error: {repr(e)}\n")
+
+            failed.append({
+                "index": i,
+                "smiles": smiles,
+                "error": str(e),
+            })
+
+            continue
+
+        unique_smiles.append(smiles)
         interchanges.append(interchange_obj)
 
-    smee_ff, smee_topologies = smee.converters.convert_interchange(interchanges)
-    topologies = dict(zip(all_smiles, smee_topologies))
-    # print(smee_ff)
-    return smee_ff, topologies
+    print(f"\nTotal failed molecules: {len(failed)}")
 
+    if len(failed) > 0:
+        with open("failed_molecules.json", "w") as f:
+            json.dump(failed, f, indent=2)
+
+    smee_ff, smee_topologies = smee.converters.convert_interchange(
+        interchanges
+    )
+
+    topologies = dict(zip(unique_smiles, smee_topologies))
+
+    return smee_ff, topologies, unique_smiles
 
 # Training Setup
 
@@ -292,6 +457,11 @@ def create_trainable(smee_force_field, functional_form):
             scales={"k": 1.0},
         )
 
+    elif functional_form == "Benchmark":
+        parameters["ImproperTorsions"] = descent.train.ParameterConfig(
+            cols=["k"],
+            scales={"k": 1.0},
+        )
     else:
         raise ValueError(f"Unknown functional form: {functional_form}")
 
@@ -363,6 +533,8 @@ def train_model(trainable, dataset, topologies, config, output_dir):
     force_history = []
     epoch_history = []
 
+    bad_batches = []
+
     for i in range(epochs):
         ff = trainable.to_force_field(trainable_parameters)
 
@@ -374,15 +546,101 @@ def train_model(trainable, dataset, topologies, config, output_dir):
 
         for batch_ids in more_itertools.batched(dataset_indices, batch_size):
             batch = dataset.select(indices=batch_ids)
-            true_batch_size = len(dataset)
+            true_batch_size = len(batch)
 
             e_ref, e_pred, f_ref, f_pred = descent.targets.energy.predict(
                 batch, ff, topologies, "mean"
             )
 
+            e_res = e_pred - e_ref
+            f_res = f_pred - f_ref
+
+            w_e = 1
+            w_f = 0.1
+
+            print("Force stats:")
+            print("ref", f_ref.min().item(), f_ref.max().item())
+            print("pred", f_pred.min().item(), f_pred.max().item())
+            print("res", f_res.min().item(), f_res.max().item())
+
+            print("---- Residual stats ----")
+            print(f"E mean {e_res.mean().item():.6e}, std {e_res.std().item():.4f}")
+            print(f"F mean {f_res.mean().item():.6e}, std {f_res.std().item():.4f}")
+
+            print(true_batch_size, e_pred.numel())
+
             loss_e = ((e_pred - e_ref) ** 2).sum() / true_batch_size
             loss_f = ((f_pred - f_ref) ** 2).sum() / true_batch_size
-            loss = loss_e + loss_f
+            loss = loss_e * w_e  + loss_f * w_f
+            print(f"E: {loss_e.item():.6f}, F: {loss_f.item():.6f}, Total: {loss.item():.6f}")
+
+            MAX_FORCE_THRESHOLD = 1e4
+            MAX_LOSS_THRESHOLD = 1e4
+
+            max_f_pred = torch.abs(f_pred).max().item()
+            max_f_ref = torch.abs(f_ref).max().item()
+
+            print(max_f_pred, max_f_ref)
+
+            if (
+                not torch.isfinite(loss)
+                or max_f_pred > MAX_FORCE_THRESHOLD
+                or loss_f.item() > MAX_LOSS_THRESHOLD
+            ):
+
+                if f_res.ndim == 3:
+                    per_sample_error = torch.norm(f_res, dim=2).mean(dim=1)
+
+                elif f_res.ndim == 2:
+                    per_sample_error = torch.norm(f_res, dim=1)
+
+                else:
+                    per_sample_error = torch.tensor([torch.norm(f_res)])
+
+                worst_local_idx = torch.argmax(per_sample_error).item()
+
+                if worst_local_idx < len(batch_ids):
+                    worst_dataset_idx = int(batch_ids[worst_local_idx])
+                else:
+                    worst_dataset_idx = int(batch_ids[0])
+
+                worst_entry = dataset[worst_dataset_idx]
+
+                batch_info = []
+
+                for local_i, idx in enumerate(batch_ids):
+                    entry = dataset[int(idx)]
+
+                    batch_info.append({
+                        "dataset_index": int(idx),
+                        "record_id": entry.get("record_id", "unknown"),
+                        "smiles": entry["smiles"],
+                        "num_confs": int(entry["coords"].shape[0]),
+                    })
+
+                bad_batches.append({
+                    "epoch": i,
+                    "batch_ids": [int(x) for x in batch_ids],
+                    "max_f_pred": max_f_pred,
+                    "max_f_ref": max_f_ref,
+                    "loss_f": loss_f.item(),
+                    "loss": loss.item(),
+
+                    "worst_record": {
+                        "dataset_index": worst_dataset_idx,
+                        "record_id": worst_entry.get("record_id", "unknown"),
+                        "smiles": worst_entry["smiles"],
+                        "num_confs": int(worst_entry["coords"].shape[0]),
+                    },
+
+                    "records": batch_info,
+                })
+
+                print("Bad records:")
+                for r in batch_info:
+                    print(r)
+
+                continue
 
             (batch_grad,) = torch.autograd.grad(loss, trainable_parameters, create_graph=True)
             batch_grad = batch_grad.detach()
@@ -421,6 +679,13 @@ def train_model(trainable, dataset, topologies, config, output_dir):
                 trainable.to_force_field(trainable_parameters),
                 output_dir / f"force-field-epoch-{i}.pt"
         )
+            
+        if len(bad_batches) > 0:
+            debug_path = output_dir / "bad_batches.json"
+            with open(debug_path, "w") as f:
+                json.dump(bad_batches, f, indent=2)
+
+            print(f"Saved bad batch log to {debug_path}")
 
     final_ff = trainable.to_force_field(trainable_parameters)
     torch.save(final_ff, output_dir / "final-force-field.pt")
@@ -520,6 +785,8 @@ def update_forcefield_parameters(smee_force_field, trainable, base_forcefield):
             # This covers LeeKrimm, HarmonicAngle, HarmonicHeight, etc.
             if handler_name == "TwoMinima":
                 continue
+            elif handler_name == "Benchmark":
+                continue
             else:
                 try:
                     handler = base_forcefield.get_parameter_handler(handler_name)
@@ -552,3 +819,4 @@ def create_output_dir(base, ff_type):
 
 def save_forcefield(ff, output_dir, ff_type):
     ff.to_file(output_dir / f"{ff_type}_final.offxml")
+

@@ -1,5 +1,5 @@
 {
   "base_forcefield": "openff_unconstrained-2.3.0.offxml",
   "output_forcefield": "custom-forcefield.offxml",
-  "functional_form": "TwoMinima"
+  "functional_form": "LeeKrimm"
 }

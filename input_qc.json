@@ -1,0 +1,29 @@
+{
+  "forcefield": "TwoMinima_custom-forcefield.offxml",
+
+  "training_data": {
+    "source": "json",
+    "datasets": [
+      {
+        "type": "optimization",
+        "directory": "data/optimization-single-v3.json",
+        "spec_name": "default"
+      },
+        {
+        "type": "torsiondrive",
+        "directory": "data/torsiondrives-v3.json",
+        "spec_name": "default"
+      }
+    ]
+    },
+
+  "output": {
+    "directory": "outputs"
+  },
+
+  "training": {
+    "epochs": 10,
+    "learning_rate": 0.01,
+    "batch_size": 128
+  }
+}
